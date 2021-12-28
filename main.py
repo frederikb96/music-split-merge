@@ -1,6 +1,6 @@
 import time
 from pydub import AudioSegment
-from pydub.playback import play
+from pydub.playback import _play_with_simpleaudio
 from pydub.silence import split_on_silence
 import numpy as np
 from pydub.utils import mediainfo
@@ -9,6 +9,16 @@ from os import listdir
 from mutagen.easyid3 import EasyID3
 from mutagen.mp3 import MP3
 import subprocess
+
+
+def play_user_stop(audio_segment):
+    time_tic = time.time()
+    play_element = _play_with_simpleaudio(audio_segment)
+    input("Press enter to cut/continue")
+    play_element.stop()
+    time_toc = time.time()
+    # Calculate new times for end
+    return (time_toc - time_tic) * 1000
 
 
 if __name__ == '__main__':
@@ -30,14 +40,14 @@ if __name__ == '__main__':
 
     # Constants for the music splitting
     # Upper limit in time - length in seconds to listen from the next song
-    timeOffSetSecond = 10000
+    timeOffSetSong2 = 10000
     # Lower limit in time - length in seconds to listen from the end of the previous song
-    timeOffSet = -15000 - timeOffSetSecond
+    timeOffSet = -15000 - timeOffSetSong2
     # When user sets moment in time to split, cut away a little more
     # Amount to cut away from previous song
     timeCut = 1000
     # Amount to cut away from the next song
-    timeCutSecond = 200
+    timeCutSong2 = 200
 
     # Constants for song tagging out of file name
     # Remove the first chars from the file name
@@ -59,33 +69,27 @@ if __name__ == '__main__':
         # Get next song
         song2 = AudioSegment.from_mp3(dirSource + "/" + files[index + 1])
         # Create new song with beginning of next song added to previous one
-        song1 = song1 + song2[:timeOffSetSecond]
+        song1 = song1 + song2[:timeOffSetSong2]
         # Cut that part away from next song
-        song2 = song2[timeOffSetSecond + 1:]
+        song2 = song2[timeOffSetSong2 + 1:]
 
         # Loop until user is ok with cut result
         repeat = 1
         timeOffSetNew = timeOffSet
         while repeat:
 
-            # Play song and wait for user interrupt to save new cutting time
-            timeTic = time.time()
-            try:
-                play(song1[timeOffSetNew:])
-            except KeyboardInterrupt:
-                pass
-            timeToc = time.time()
+            # Play song and get time till user stop
+            dif = play_user_stop(song1[timeOffSetNew:])
             # Calculate new times for end
-            dif = (timeToc - timeTic) * 1000
             timeEnd = timeOffSetNew + dif - timeCut
             if timeEnd >= 0:
                 timeEnd = -25
             # create new song
             songNew = (song1[:timeEnd] + AudioSegment.silent(1000, song1.frame_rate)).fade_out(2000)
-            # calculate new time for start second
-            timeStartSecond = timeOffSetNew + dif - timeCutSecond
-            if timeStartSecond >= 0:
-                timeStartSecond = -1
+            # calculate new time for start Song2
+            timeStartSong2 = timeOffSetNew + dif - timeCutSong2
+            if timeStartSong2 >= 0:
+                timeStartSong2 = -1
 
             # check if repeat sequence
             try:
@@ -99,14 +103,11 @@ if __name__ == '__main__':
                     while middleRep:
                         repeat = 0
                         # play cut sequence
-                        timeTic = time.time()
-                        play(song1[timeEnd:])
-                        timeToc = time.time()
-                        dif = (timeToc - timeTic) * 1000
-                        # calculate new time for start second
-                        timeStartSecond = timeEnd + dif - timeCutSecond
-                        if timeStartSecond >= 0:
-                            timeStartSecond = -1
+                        dif = play_user_stop(song1[timeEnd:])
+                        # calculate new time for start Song2
+                        timeStartSong2 = timeEnd + dif - timeCutSong2
+                        if timeStartSong2 >= 0:
+                            timeStartSong2 = -1
                         # check if repeat
                         cmd2 = input("\n'ö':repeat; 'p':repeat all; other:continue")
                         if cmd2 == 'ö':
@@ -118,12 +119,12 @@ if __name__ == '__main__':
                             middleRep = 0
                 elif cmd1 == 'o':
                     # play firsts song end
-                    play(songNew[-4000:])
-                    # play second song beginning
-                    if timeStartSecond + 4000 < 0:
-                        play(song1[timeStartSecond:timeStartSecond+4000])
+                    play_user_stop(songNew[-4000:])
+                    # play the new beginning for song2
+                    if timeStartSong2 + 4000 < 0:
+                        play_user_stop(song1[timeStartSong2:timeStartSong2+4000])
                     else:
-                        play(song1[timeStartSecond:])
+                        play_user_stop(song1[timeStartSong2:])
                     # check user input
                     cmd2 = input("\n'ö':repeat; other:continue")
                     if cmd2 == 'ö':
@@ -132,7 +133,7 @@ if __name__ == '__main__':
                         repeat = 0
                 elif cmd1 == 'l':
                     timeOffSetNew = input("\nEnter new offset: (-15000)")
-                    timeOffSetNew = int(timeOffSetNew) - timeOffSetSecond
+                    timeOffSetNew = int(timeOffSetNew) - timeOffSetSong2
                     repeat = 1
                 elif cmd1 == 'k':
                     stop = 1
@@ -177,7 +178,7 @@ if __name__ == '__main__':
             m["genre"] = genreName
             # Save again with new tags
             m.save()
-            print("\n--------------------\n%s\n--------------------\n" %newName)
+            print("\n--------------------\n%s\n--------------------\n" % newName)
         else:
             firstSave = 1
 
@@ -192,4 +193,4 @@ if __name__ == '__main__':
         process = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
         # Use next song as new previous song and fix its beginning according to results
-        song1 = song1[timeStartSecond:] + song2
+        song1 = song1[timeStartSong2:] + song2
